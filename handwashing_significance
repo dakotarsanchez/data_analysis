@@ -1,0 +1,217 @@
+#This code uses Python to explore how implementing handwashing in Vienna hospitals affected the death rate for women giving birth. 
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+pd.options.display.float_format = '{:,.2f}'.format
+
+# Create locators for ticks on the time axis
+
+
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters
+
+df_yearly = pd.read_csv('annual_deaths_by_clinic.csv')
+df_monthly = pd.read_csv('monthly_deaths.csv', 
+                      parse_dates=['date'])
+
+#initial exploration of the data
+
+df_yearly.head()
+df_yearly.info()
+df_monthly.head()
+df_monthly.info()
+
+#checking if the data needs to be cleaned
+
+df_monthly.isna().values.any()
+df_monthly.duplicated().values.any()
+df_monthly.describe()
+
+#calculating the probability of women who died during child birth
+
+prob = df_yearly.deaths.sum() / df_yearly.births.sum() * 100
+print(prob)
+
+#uisng matplotlib to visualize the number of deaths and births over time
+years = mdates.YearLocator()
+months = mdates.MonthLocator()
+years_fmt = mdates.DateFormatter('%Y')
+
+plt.figure(figsize=(14,8), dpi=200)
+plt.title('Total Number of Monthly Births and Deaths', fontsize=18)
+plt.yticks(fontsize=14)
+plt.xticks(fontsize=14, rotation=45)
+
+ax1 = plt.gca()
+ax2 = ax1.twinx()
+
+ax1.set_ylabel('Births', color='skyblue', fontsize=18)
+ax2.set_ylabel('Deaths', color='crimson', fontsize=18)
+
+ax1.set_xlim([df_monthly.date.min(), df_monthly.date.max()])
+ax1.xaxis.set_major_locator(years)
+ax1.xaxis.set_major_formatter(years_fmt)
+ax1.xaxis.set_minor_locator(months)
+
+ax1.grid(color='grey', linestyle='--')
+
+ax1.plot(df_monthly.date,
+         df_monthly.births,
+         color='skyblue',
+         linewidth=3)
+ax2.plot(df_monthly.date,
+         df_monthly.deaths,
+         color='crimson',
+         linewidth=2,
+         linestyle='--')
+plt.show()
+
+#aggregating the data to explore by clinic
+
+df_clinic = df_yearly.groupby(by='clinic').agg({'births': pd.Series.sum})
+df_clinic.head()
+
+line = px.line(df_yearly,
+               x='year',
+               y='births',
+               color='clinic',
+               title='Total Yearly Births by Clinic')
+line.show()
+
+df_yearly['pct_death'] = df_yearly.deaths / df_yearly.births
+
+clinic_1 = df_yearly[df_yearly.clinic == 'clinic 1']
+avg_c1 = clinic_1.deaths.sum() /clinic_1.births.sum() * 100
+print(avg_c1)
+clinic_2 = df_yearly[df_yearly.clinic == 'clinic 2']
+avg_c2 = clinic_2.deaths.sum() /clinic_2.births.sum() * 100
+print(avg_c2)
+
+#visualizing the proportion of Yearly Deaths for each clinic
+
+line = px.line(df_yearly, 
+               x='year', 
+               y='pct_death',
+               color='clinic',
+               title='Proportion of Yearly Deaths by Clinic')
+line.show()
+
+#Date when handwashing was made mandatory
+handwashing_start = pd.to_datetime('1847-06-01')
+
+df_monthly['pct_death'] = df_monthly.deaths/df_monthly.births
+
+#split the data by if handwashing was mandatory or not
+
+before_washing = df_monthly[df_monthly.date < handwashing_start]
+after_washing = df_monthly[df_monthly.date >= handwashing_start]
+bw_rate = before_washing.deaths.sum() / before_washing.births.sum() * 100
+aw_rate = after_washing.deaths.sum() / after_washing.births.sum() * 100
+
+before_washing.tail()
+
+#find the 6 month rolling average of death rate prior to handwashing
+
+roll_df = before_washing.set_index('date')
+roll_df = roll_df.rolling(window=6).mean()
+
+#visualize the effect handwashing had on the death rate
+
+years = mdates.YearLocator()
+months = mdates.MonthLocator()
+years_fmt = mdates.DateFormatter('%Y')
+
+plt.figure(figsize=(14,8), dpi=200)
+plt.title('Total Number of Monthly Births and Deaths', fontsize=18)
+plt.yticks(fontsize=14)
+plt.xticks(fontsize=14, rotation=45)
+
+ax1 = plt.gca()
+ax1.set_xlim([df_monthly.date.min(), df_monthly.date.max()])
+ax1.xaxis.set_major_locator(years)
+ax1.xaxis.set_major_formatter(years_fmt)
+ax1.xaxis.set_minor_locator(months)
+
+plt.grid(color='grey', linestyle='--')
+
+ma_line, = plt.plot(roll_df.index,
+                    roll_df.pct_death,
+                    color='crimson',
+                    linewidth=3,
+                    linestyle='--',
+                    label='6m Moving Average')
+bw_line, = plt.plot(before_washing.date,
+                    before_washing.pct_death,
+                    color='black',
+                    linewidth=1,
+                    linestyle='--',
+                    label='Before Handwashing')
+aw_line, = plt.plot(after_washing.date,
+                    after_washing.pct_death,
+                    color='skyblue',
+                    linewidth=3,
+                    marker='o',
+                    label='After Handwashing')
+plt.legend(handles=[ma_line, bw_line, aw_line], fontsize = 18)
+
+plt.show()
+
+#find the difference in the average death rate
+avg_prob_before = before_washing.pct_death.mean()*100
+avg_prob_after = after_washing.pct_death.mean()
+mean_diff = avg_prob_before = avg_prob_after
+times = avg_prob_before / avg_prob_after
+
+#visualizing the data with a box plot
+
+df_monthly['washing_hands'] = np.where(df_monthly.date < handwashing_start, 'No', 'Yes')
+box = px.box(df_monthly,
+             x='washing_hands',
+             y='pct_death',
+             color='washing_hands',
+             title='How have the stats changed with handwashing?')
+box.update_layout(xaxis_title='Washing Hands',
+                  yaxis_title='Percentage of Monthly Deaths')
+box.show()
+
+#further vizualize the data with a histogram
+
+hist = px.histogram(df_monthly,
+                    x='pct_death',
+                    color='washing_hands',
+                    nbins=30,
+                    opacity=.6,
+                    barmode='overlay',
+                    histnorm='percent',
+                    marginal='box')
+hist.update_layout(xaxis_title='Proportion of Monthly Deaths',
+                   yaxis_title='Count')
+hist.show()
+
+#create a Kernel Density Plot for the Monthly Death Rate
+
+plt.figure(dpi=200)
+sns.kdeplot(before_washing.pct_death, 
+            shade=True,
+            clip=(0,1))
+sns.kdeplot(after_washing.pct_death, 
+            shade=True,
+            clip=(0,1))
+plt.title('Est. Distribution of Monthly Death Rate Before and After Handwashing')
+plt.xlim(0,.40)
+plt.show()
+
+#perform a T-test to show if handwashing had a statistically significant effect on the death rate
+import scipy.stats as stats
+
+t_stat, p_value = stats.ttest_ind(a=before_washing.pct_death,
+                                  b=after_washing.pct_death)
+print(f"p-value is {p_value:.10f}")
+print(f't-statistic is {t_stat:.4}')
+
+
+
